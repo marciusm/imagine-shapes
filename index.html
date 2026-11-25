@@ -999,7 +999,6 @@ não é um projeto do IMAGINE SHAPES ⇒ not an IMAGINE SHAPES project
 o arquivo passou de 4 GB: reduza a duração ou a qualidade ⇒ the file went over 4 GB: reduce the duration or the quality
 o codificador de áudio não devolveu nada ⇒ the audio encoder returned nothing
 o codificador não entregou a configuração H.264 ⇒ the encoder did not deliver the H.264 configuration
-o codificador reordenou os quadros; não suportado ⇒ the encoder reordered the frames; not supported
 o navegador não codifica áudio ⇒ the browser cannot encode audio
 outra ⇒ other
 prévia ⇒ preview
@@ -2421,10 +2420,11 @@ function mp4Build(Tk,dur){const{b32,b16,box,full,cat,u8,mat,str}=M4,MT=1000,chun
   let entry;if(V)entry=box('avc1',u8(6),b16(1),u8(16),b16(t.w),b16(t.h),b32(0x00480000),b32(0x00480000),b32(0),b16(1),u8(32),b16(0x18),b16(0xFFFF),box('avcC',t.desc),box('pasp',b32(1),b32(1)));
   else if(t.opus)entry=box('Opus',u8(6),b16(1),u8(8),b16(t.ch),b16(16),b16(0),b16(0),b32(t.sr<<16>>>0),box('dOps',u8([0,t.ch]),b16(t.pre),b32(t.sr),b16(0),u8([0])));
   else{const es=M4.desc(3,cat([b16(1),u8([0]),M4.desc(4,cat([u8([0x40,0x15,0,0,0]),b32(t.br),b32(t.br),M4.desc(5,t.desc)])),M4.desc(6,u8([2]))]));entry=box('mp4a',u8(6),b16(1),u8(8),b16(t.ch),b16(16),b16(0),b16(0),b32(t.sr<<16>>>0),full('esds',0,0,es))}
-  const stsd=full('stsd',0,0,b32(1),entry),stts=full('stts',0,0,b32(1),b32(n),b32(t.delta)),sc=[];t.chunks.forEach((c,i)=>{if(!sc.length||sc[sc.length-1][1]!==c.n)sc.push([i+1,c.n])});
+  const stsd=full('stsd',0,0,b32(1),entry),stts=full('stts',0,0,b32(1),b32(n),b32(t.delta)),cr=[];if(V&&t.shift!=null)for(const x of t.samples){const o=x.ct;if(cr.length&&cr[cr.length-1][1]===o)cr[cr.length-1][0]++;else cr.push([1,o])}
+  const ctts=cr.length?full('ctts',0,0,b32(cr.length),...cr.map(e=>cat([b32(e[0]),b32(e[1])]))):u8(0),edts=V&&t.shift?box('edts',full('elst',0,0,b32(1),b32(tdur),b32(t.shift*t.delta),b16(1),b16(0))):u8(0),sc=[];t.chunks.forEach((c,i)=>{if(!sc.length||sc[sc.length-1][1]!==c.n)sc.push([i+1,c.n])});
   const stsc=full('stsc',0,0,b32(sc.length),...sc.map(e=>cat([b32(e[0]),b32(e[1]),b32(1)]))),stsz=full('stsz',0,0,b32(0),b32(n),...t.samples.map(x=>b32(x.data.length))),stco=full('stco',0,0,b32(t.chunks.length),...t.chunks.map(c=>b32(c.off)));
-  const ks=V?t.samples.map((x,i)=>x.key?i+1:0).filter(Boolean):null,stss=V?full('stss',0,0,b32(ks.length),...ks.map(b32)):u8(0),stbl=box('stbl',stsd,stts,stss,stsc,stsz,stco),dinf=box('dinf',full('dref',0,0,b32(1),full('url ',0,1)));
-  return box('trak',tkhd,box('mdia',mdhd,hdlr,box('minf',V?full('vmhd',0,1,u8(8)):full('smhd',0,0,u8(4)),dinf,stbl)))};
+  const ks=V?t.samples.map((x,i)=>x.key?i+1:0).filter(Boolean):null,stss=V?full('stss',0,0,b32(ks.length),...ks.map(b32)):u8(0),stbl=box('stbl',stsd,stts,ctts,stss,stsc,stsz,stco),dinf=box('dinf',full('dref',0,0,b32(1),full('url ',0,1)));
+  return box('trak',tkhd,edts,box('mdia',mdhd,hdlr,box('minf',V?full('vmhd',0,1,u8(8)):full('smhd',0,0,u8(4)),dinf,stbl)))};
  const moov=()=>box('moov',full('mvhd',0,0,b32(0),b32(0),b32(MT),b32(Math.round(dur*MT)),b32(0x00010000),b16(0x0100),u8(10),mat(),u8(24),b32(Tk.length+1)),...Tk.map((t,i)=>trak(t,i+1)));
  let mo=moov();const base=ftyp.length+mo.length+8;let off=base;for(const c of chunks){c.off=off;off+=csize(c)}mo=moov();if(off>0xFFFFFFFF)throw new Error(T('o arquivo passou de 4 GB: reduza a duração ou a qualidade'));
  const parts=[ftyp,mo,cat([b32(off-base+8),str('mdat')])];for(const c of chunks){const t=Tk[c.ti];for(let i=c.first;i<c.first+c.n;i++)parts.push(t.samples[i].data)}return new Blob(parts,{type:'video/mp4'})}
@@ -2458,8 +2458,11 @@ async function exportMp4(){if(XP.run||XP.rec)return;if(!window.VideoEncoder)retu
   for(let n=0;n<N&&XP.run;n++){if(verr)throw verr;XP.t=n/fps;if(useDir){const sg=Math.floor(n/segF),A=P.compositions[seq[sg]],loc=n-sg*segF;if(sg>0&&loc<fadeF&&seq[sg-1]!==seq[sg])renderMix(P.compositions[seq[sg-1]],A,loc/fadeF,n,W,H);else renderComp(A,n,W,H)}else renderComp(cur(),n,W,H);const vf=new VideoFrame(OUT,{timestamp:Math.round(n*1e6/fps),duration:Math.round(1e6/fps),alpha:'discard'});enc.encode(vf,{keyFrame:n%(fps*2)===0});vf.close();while(enc.encodeQueueSize>6)await new Promise(r=>setTimeout(r,2));
    if(n%5===0||n===N-1){const el=(performance.now()-t0)/1000,rate=(n+1)/Math.max(el,0.001);prog(TF('Quadro {0} de {1} · {2} q/s · falta ~{3} s',n+1,N,rate.toFixed(0),Math.ceil((N-n-1)/Math.max(rate,0.1))))}await new Promise(r=>setTimeout(r))}
   await enc.flush();if(verr)throw verr;if(!XP.run){prog(T('Exportação cancelada.'));return}
-  for(let i=1;i<vs.length;i++)if(vs[i].ts<vs[i-1].ts)throw new Error(T('o codificador reordenou os quadros; não suportado'));if(!vdesc)throw new Error(T('o codificador não entregou a configuração H.264'));
-  const Tk=[{kind:'v',ts:fps*1000,delta:1000,samples:vs,desc:vdesc,w:W,h:H}];let aErr='';if(withA){prog(T('Codificando o áudio…'));try{Tk.push(await audioTrack(N/fps))}catch(e){aErr=e.message||String(e)}}
+  let vsh=null;for(let i=1;i<vs.length;i++)if(vs[i].ts<vs[i-1].ts){vsh=0;break}
+  /* quadros B (comum no codificador por hardware do Windows): a ordem de decodificação difere da de exibição. O MP4 guarda o
+     deslocamento de cada quadro (ctts) e uma lista de edição (elst) desconta o atraso, para o vídeo começar no zero */
+  if(vsh!=null){const ks=vs.map(x=>Math.round(x.ts*fps/1e6));ks.forEach((k,i)=>{vsh=Math.max(vsh,i-k)});vs.forEach((x,i)=>{x.ct=(ks[i]-i+vsh)*1000})}if(!vdesc)throw new Error(T('o codificador não entregou a configuração H.264'));
+  const Tk=[{kind:'v',ts:fps*1000,delta:1000,samples:vs,desc:vdesc,w:W,h:H,shift:vsh}];let aErr='';if(withA){prog(T('Codificando o áudio…'));try{Tk.push(await audioTrack(N/fps))}catch(e){aErr=e.message||String(e)}}
   if(aErr&&!confirm(TF('O áudio não entrou no vídeo: {0}. Salvar o MP4 mesmo assim, sem áudio?',aErr))){prog(T('Exportação cancelada.'));return}
   prog(T('Montando o MP4…'));const blob=mp4Build(Tk,N/fps);download(blob,`${slug(P.meta.name)}-${useDir?slug(T('diretor')):slug(T(cur().name))}-${W}x${H}.mp4`);prog(TF('MP4 salvo: {0}×{1}, {2} s, {3} fps, {4} MB{5}.',W,H,(N/fps).toFixed(1),fps,(blob.size/1048576).toFixed(1),Tk.length>1?T(', com música'):''));toast(T('MP4 salvo'),2200)}
  catch(e){prog(T('Falhou')+': '+e.message);toast(T('Falhou')+': '+e.message,3000)}
